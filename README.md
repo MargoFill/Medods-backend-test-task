@@ -1,3 +1,133 @@
+# Implemented Features
+
+Added support for task recurrence. When creating a task, you can specify the recurrence type (`frequency`) and additional parameters. The system automatically calculates `next_due_date` — the date of the next execution. The task list (`GET /tasks`) only displays tasks where `next_due_date <= today` or tasks without a recurrence schedule.
+
+## When a task status is changed to `done`, the system automatically:
+
+* recalculates `next_due_date` for the next period
+* resets the status back to `new`
+
+This way, the task "comes back" on its next scheduled date without the need to create it again.
+
+# Recurrence Types
+
+## 1. Daily (`daily`)
+
+The task repeats every N days.
+
+Parameter: `interval` — how often the task repeats, in days (1 or higher).
+
+When created, `next_due_date = today`. After completion, `next_due_date = previous date + interval days`.
+
+### JSON
+
+```json
+{
+  "title": "Call patients",
+  "frequency": "daily",
+  "interval": 1
+}
+```
+
+## 2. Monthly (`monthly`)
+
+The task repeats on the N-th day of each month.
+
+Parameter: `day_of_month` — day of the month, from 1 to 31.
+
+If the selected day exceeds the number of days in a month, the last day of that month is used. For example, day 30 in February becomes February 28.
+
+### JSON
+
+```json
+{
+  "title": "Generate report",
+  "frequency": "monthly",
+  "day_of_month": 15
+}
+```
+
+## 3. Specific Dates (`certain_date`)
+
+The task is created only for the specified dates. The dates are stored in a separate `task_dates` table. The system automatically selects the nearest date that has not yet passed.
+
+Parameter: `specific_dates` — an array of dates in ISO 8601 format.
+
+### JSON
+
+```json
+{
+  "title": "Inventory check",
+  "frequency": "certain_date",
+  "specific_dates": ["2026-05-01T00:00:00Z", "2026-09-01T00:00:00Z"]
+}
+```
+
+## 4. Even/Odd Days (`odd_even`)
+
+The task appears only on even or odd days of the month.
+
+Parameter: `odd_even_type` — `"even"` or `"odd"`.
+
+### JSON
+
+```json
+{
+  "title": "Prepare reports",
+  "frequency": "odd_even",
+  "odd_even_type": "even"
+}
+```
+
+# Design Decisions and Assumptions
+
+* **`next_due_date` as the primary mechanism** — instead of generating separate records for each occurrence, a single task is stored with a `next_due_date` field. This is simpler and avoids creating unnecessary database records.
+* **Filtering in LIST** — `GET /tasks` returns only currently relevant tasks (`next_due_date <= today`). Tasks without a recurrence schedule are always displayed.
+* **Calculation based on the previous date** — when a task is marked as `done`, the next date is calculated from the previous `next_due_date`, rather than from the current date. This prevents the schedule from shifting if the task is completed later than scheduled.
+* **The 31st day of the month** — if the 31st is selected and the current month has fewer days, the last day of the month is used. In the following month, the date returns to the 31st if the month has enough days.
+* **Specific dates in a separate table** — `task_dates` is linked to `tasks` using `ON DELETE CASCADE`. When a task is deleted, all its associated dates are automatically deleted as well.
+* **`done` status** — when a task is changed to `done`, its status is immediately reset to `new` and the next date is recalculated. A task never remains in the `done` state permanently — this is intentional for recurring tasks.
+* **Starting from today** — when a task is created, `next_due_date` is always set to today (or to the nearest suitable day for `odd_even`). The user does not need to specify a start date, so the task immediately appears in the list and is ready to be completed.
+
+# Database Schema
+
+```sql
+tasks (
+  id, title, description, status,
+  created_at, updated_at,
+  frequency, interval,
+  next_due_date,
+  day_of_month,
+  odd_even_type
+)
+
+task_dates (
+  id,
+  task_id → tasks(id) CASCADE,
+  date
+)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Что реализовано
 
 Добавлена возможность задавать периодичность задач. При создании задачи указывается тип периодичности (frequency) и дополнительные параметры. Система автоматически вычисляет next_due_date -> дату следующего выполнения. В списке задач (GET /tasks) отображаются только те задачи, у которых next_due_date <= сегодня или периодичность не задана.
